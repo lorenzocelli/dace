@@ -1070,22 +1070,30 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
         var_decl.type = input_type.type
 
     def _parse_call_expr_node(self, node: ast_internal_classes.Call_Expr_Node):
+        # TODO: what happens if we have mask as a named argument?
+        n_args = len(node.args)
+        if n_args < 1:
+            raise NotImplementedError("Expected at least one argument for MINVAL/MAXVAL")
+        
+        array_node = self._parse_array(node, node.args[0])
+        
+        if array_node is None:
+            raise NotImplementedError("Expected an array as the first argument of MINVAL/MAXVAL")
+        
+        self.rvals.append(array_node)
 
-        for arg in node.args:
+        if n_args < 3:
+            return
 
-            array_node = self._parse_array(node, arg)
+        mask_node = self._parse_array(node, node.args[2])
+        
+        if mask_node is None:
+            raise NotImplementedError("Expected an array as the MASK argument of MINVAL/MAXVAL")
 
-            if array_node is not None:
-                self.rvals.append(array_node)
-            else:
-                raise NotImplementedError("We do not support non-array arguments for MINVAL/MAXVAL")
+        self.rvals.append(mask_node)
 
     def _summarize_args(self, exec_node: ast_internal_classes.Execution_Part_Node, node: ast_internal_classes.FNode,
                         new_func_body: List[ast_internal_classes.FNode]):
-
-        if len(self.rvals) != 1:
-            raise NotImplementedError("Only one array can be summed")
-
         self.argument_variable = self.rvals[0]
 
         par_Decl_Range_Finder(self.argument_variable,
@@ -1095,6 +1103,10 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
                               self.scope_vars,
                               self.ast.structures,
                               declaration=True)
+        
+        self.mask_variable = self.rvals[1]
+        self.mask_variable.indices = self.argument_variable.indices
+
 
     def _initialize_result(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
 
@@ -1104,16 +1116,23 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
                                                line_number=node.line_number)
 
     def _generate_loop_body(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
-
         cond = ast_internal_classes.BinOp_Node(lval=self.argument_variable,
                                                op=self._condition_op(),
                                                rval=node.lval,
                                                line_number=node.line_number)
+        # TODO: add mask condition (mask is optional)
+        cond_2 = ast_internal_classes.BinOp_Node(
+            lval=cond,
+            op=".AND.",
+            rval=self.mask_variable,
+            line_number=node.line_number
+        )
         body_if = ast_internal_classes.BinOp_Node(lval=node.lval,
                                                   op="=",
                                                   rval=copy.deepcopy(self.argument_variable),
                                                   line_number=node.line_number)
-        return ast_internal_classes.If_Stmt_Node(cond=cond,
+        
+        return ast_internal_classes.If_Stmt_Node(cond=cond_2,
                                                  body=body_if,
                                                  body_else=ast_internal_classes.Execution_Part_Node(execution=[]),
                                                  line_number=node.line_number)

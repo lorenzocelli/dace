@@ -55,8 +55,16 @@ print('result =', res)
 Overview of the steps involved:
 
 1. `create_singular_sdfg_from_string` turns the source into a DaCe SDFG (Stateful DataFlow Graph).
+    - In `fortran_parser.py`, `AST_translator.ifstmt2sdfg` converts the Fortran AST into SDFG.
+    - In `ast_utils.py`, the class `TaskletWriter` (`write_code` method) converts the AST nodes into SDFG code.
 2. `simplify()` applies safe transformations (that will surely increase the performance) on the SDFG.
 3. Invoking the SDFG:
     - Compiles the SDFG (`SDFG.compile()`) into an executable in the folder `.dacecache/my_function`. The code is generated with `codegen.generate_code()`.
     - Runs the executable with the provided arguments.
     - Converts the results back to numpy arrays.
+
+## Vocabulary 📕
+
+- SDFG: Stateful DataFlow multiGraph, the internal representation used by DaCe to represent programs.
+
+- AST: Abstract Syntax Tree, an intermediate representation of source code used in compilers and interpreters.
