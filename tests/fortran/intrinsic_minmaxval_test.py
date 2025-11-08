@@ -5,7 +5,7 @@ import numpy as np
 from dace.frontend.fortran import ast_transforms, fortran_parser
 from dace.frontend.fortran.fortran_parser import create_singular_sdfg_from_string
 from tests.fortran.fortran_test_helper import SourceCodeBuilder
-
+import pytest
 
 def test_fortran_frontend_minval_double():
     """
@@ -298,6 +298,36 @@ END MODULE
     assert res[1] == inp[6]
     assert res[2] == inp[5]
     assert res[3] == inp[4]
+
+
+@pytest.mark.parametrize("array, mask, expected, method", [
+    ([58, -32, 20, 30, 118, 1, 0], [1, 1, 1, 1, 1, 1, 1], -32, "minval"),
+    ([58, -32, 20, 30, 118, 1, 0], [1, 1, 1, 1, 1, 1, 1], 118, "maxval"),
+    ([58, -32, 20, 30, 118, 1, 0], [0, 0, 1, 1, 1, 1, 1], 0, "minval"),
+    ([58, -32, 20, 30, 118, 1, 0], [1, 0, 1, 1, 0, 1, 1], 58, "maxval"),
+    ([58, -32, 20, 30, 118, 1, 0], [0, 0, 0, 0, 1, 0, 0], 118, "minval"),
+    ([58, -32, 20, 30, 118, 1, 0], [0, 1, 0, 0, 0, 0, 0], -32, "maxval"),
+])
+def test_fortran_frontend_min_max_val_mask(array, mask, expected, method):
+    test_string = f"""
+        SUBROUTINE minval_test_function(d, mask, res)
+        double precision, dimension({len(array)}) :: d
+        double precision, dimension({len(array)}) :: mask
+        double precision, dimension(1) :: res
+
+        res(1) = {method}(d, mask)
+
+        END SUBROUTINE minval_test_function
+    """
+
+    sdfg = fortran_parser.create_sdfg_from_string(test_string, "minval_test", True)
+    sdfg.simplify()
+
+    d = np.array(array, dtype=np.double, order="F")
+    mask = np.array(mask, dtype=np.double, order="F")
+    res = np.array([0], dtype=np.double, order="F")
+    sdfg(d=d, mask=mask, res=res)
+    assert res[0] == expected
 
 
 if __name__ == "__main__":
