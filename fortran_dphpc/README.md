@@ -64,6 +64,14 @@ To run all tests in the file `tests/fortran/intrinsic_minmaxval_test.py`:
 python -m pytest tests/fortran/intrinsic_minmaxval_test.py 
 ```
 
+## Run a Fortran example
+
+In this folder there is a Fortran example file `minval_test.f90` that uses the Fortran intrinsic `minval` to compute the minimum value of a 2D array. To compile and run it:
+
+```bash
+gfortran -o minval_test minval_test.f90 && ./minval_test
+```
+
 ## How it works
 
 Overview of the steps involved:
