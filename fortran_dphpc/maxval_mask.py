@@ -10,6 +10,7 @@ logical, dimension({INPUT_SIZE}) :: mask
 integer, dimension({OUTPUT_SIZE}) :: res
 
 res(1) = MINVAL(d, 0, mask)
+! res(1) = MINVAL(array, MASK = mask) ! named argument syntax
 ! res(2) = MINVAL(d(:)) TODO
 ! res(3) = MINVAL(d(3:6)) TODO
 

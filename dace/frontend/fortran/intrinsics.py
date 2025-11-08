@@ -1104,8 +1104,12 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
                               self.ast.structures,
                               declaration=True)
         
-        self.mask_variable = self.rvals[1]
-        self.mask_variable.indices = self.argument_variable.indices
+        self.mask_variable = None
+
+        if len(self.rvals) > 1:
+            # User specified a mask, for which we can use the same ranges as the argument variable 
+            self.mask_variable = self.rvals[1]
+            self.mask_variable.indices = self.argument_variable.indices
 
 
     def _initialize_result(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
@@ -1120,19 +1124,21 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
                                                op=self._condition_op(),
                                                rval=node.lval,
                                                line_number=node.line_number)
-        # TODO: add mask condition (mask is optional)
-        cond_2 = ast_internal_classes.BinOp_Node(
-            lval=cond,
-            op=".AND.",
-            rval=self.mask_variable,
-            line_number=node.line_number
-        )
+        
+        if self.mask_variable is not None:
+            cond = ast_internal_classes.BinOp_Node(
+                lval=cond,
+                op=".AND.",
+                rval=self.mask_variable,
+                line_number=node.line_number
+            )
+        
         body_if = ast_internal_classes.BinOp_Node(lval=node.lval,
                                                   op="=",
                                                   rval=copy.deepcopy(self.argument_variable),
                                                   line_number=node.line_number)
         
-        return ast_internal_classes.If_Stmt_Node(cond=cond_2,
+        return ast_internal_classes.If_Stmt_Node(cond=cond,
                                                  body=body_if,
                                                  body_else=ast_internal_classes.Execution_Part_Node(execution=[]),
                                                  line_number=node.line_number)

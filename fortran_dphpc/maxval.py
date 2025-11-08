@@ -1,3 +1,7 @@
+"""
+Run with:
+python -m fortran_dphpc.maxval_mask
+"""
 from dace.frontend.fortran.fortran_parser import create_singular_sdfg_from_string
 import numpy as np
 

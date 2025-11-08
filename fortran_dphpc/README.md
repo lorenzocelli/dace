@@ -59,6 +59,11 @@ To run all the Fortran tests:
 python -m pytest tests/fortran  
 ```
 
+To run all tests in the file `tests/fortran/intrinsic_minmaxval_test.py`:
+```bash
+python -m pytest tests/fortran/intrinsic_minmaxval_test.py 
+```
+
 ## How it works
 
 Overview of the steps involved:
