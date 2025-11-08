@@ -50,6 +50,15 @@ sdfg(d=d, res=res)
 
 print('result =', res)
 ```
+## Running tests
+
+Note that pytest is not in the requirements.txt file. To install pytest, run `python -m pip install pytest`.
+
+To run all the Fortran tests:
+```bash
+python -m pytest tests/fortran  
+```
+
 ## How it works
 
 Overview of the steps involved:
