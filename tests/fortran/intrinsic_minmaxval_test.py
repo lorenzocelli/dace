@@ -309,10 +309,15 @@ END MODULE
     ([58, -32, 20, 30, 118, 1, 0], [0, 1, 0, 0, 0, 0, 0], -32, "maxval"),
 ])
 def test_fortran_frontend_min_max_val_mask(array, mask, expected, method):
+    d = np.array(array, dtype=np.double, order="F")
+    mask = np.array(mask, dtype=np.double, order="F")
+    res = np.array([0], dtype=np.double, order="F")
+
+    shape = ",".join([str(d) for d in d.shape])
     test_string = f"""
         SUBROUTINE minval_test_function(d, mask, res)
-        double precision, dimension({len(array)}) :: d
-        double precision, dimension({len(array)}) :: mask
+        double precision, dimension({shape}) :: d
+        double precision, dimension({shape}) :: mask
         double precision, dimension(1) :: res
 
         res(1) = {method}(d, mask)
@@ -323,11 +328,18 @@ def test_fortran_frontend_min_max_val_mask(array, mask, expected, method):
     sdfg = fortran_parser.create_sdfg_from_string(test_string, "minval_test", True)
     sdfg.simplify()
 
-    d = np.array(array, dtype=np.double, order="F")
-    mask = np.array(mask, dtype=np.double, order="F")
-    res = np.array([0], dtype=np.double, order="F")
     sdfg(d=d, mask=mask, res=res)
     assert res[0] == expected
+
+
+@pytest.mark.parametrize("array, mask, expected, method", [
+    ([[1, 1], [0, 3]], [[1, 1], [1, 1]], 3, "maxval"),
+    ([[1, 1], [0, 3]], [[1, 1], [1, 1]], 0, "minval"),
+    ([[1, 1], [0, 3]], [[1, 0], [0, 1]], 1, "minval"),
+    ([[1, 1], [0, 3]], [[1, 0], [1, 0]], 1, "maxval"),
+])
+def test_fortran_frontend_min_max_matrix_mask(array, mask, expected, method):
+    test_fortran_frontend_min_max_val_mask(array, mask, expected, method)
 
 
 if __name__ == "__main__":
