@@ -1070,22 +1070,33 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
         var_decl.type = input_type.type
 
     def _parse_call_expr_node(self, node: ast_internal_classes.Call_Expr_Node):
+        arr = None
+        mask = None
+        dim = None
+
         # TODO: what happens if we have mask as a named argument?
         n_args = len(node.args)
-        if n_args < 1:
-            raise NotImplementedError("Expected at least one argument for MINVAL/MAXVAL")
+
+        if n_args == 1:
+            arr = node.args[0]
+        elif n_args == 2:
+            arr, mask = node.args
+        elif n_args == 3:
+            arr, dim, mask = node.args
+        else:
+            raise NotImplementedError(f"Expected either one, two or three arguments for MINVAL/MAXVAL, got {n_args} instead.")
         
-        array_node = self._parse_array(node, node.args[0])
+        array_node = self._parse_array(node, arr)
         
         if array_node is None:
             raise NotImplementedError("Expected an array as the first argument of MINVAL/MAXVAL")
         
         self.rvals.append(array_node)
-
-        if n_args < 3:
+        
+        if mask is None:
             return
-
-        mask_node = self._parse_array(node, node.args[2])
+        
+        mask_node = self._parse_array(node, mask)
         
         if mask_node is None:
             raise NotImplementedError("Expected an array as the MASK argument of MINVAL/MAXVAL")
