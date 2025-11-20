@@ -12,10 +12,8 @@ N = dace.symbol('N')
 
 
 @dace.program
-def simple_reduction(A: dace.float64[M, N], B: dace.float64[M, N], C: dace.float64[N]):
-    tmp = np.ndarray(shape=[M, N], dtype=np.float64)
-    tmp[:] = A[:] + B[:]
-    C[:] = dace.reduce(lambda a, b: min(a, b), tmp, axis=0)
+def simple_reduction(A: dace.float64[M, N], R: dace.float64[1]):
+    R[0] = dace.reduce(lambda a, b: min(a, b), A, identity=np.inf)
 
 
 sdfg = simple_reduction.to_sdfg()
@@ -25,11 +23,10 @@ sdfg.simplify()
 M = 3
 N = 5
 
-A = (np.random.rand(M, N) * 10).round().astype(np.float64)
-B = (np.random.rand(M, N) * 10).round().astype(np.float64)
-C = np.zeros([N], dtype=np.float64) + 1000.0  # TODO C requires initialization
+A = (np.random.rand(M, N) * 10).round().astype(np.float64) + 1.0
+R = np.zeros([1], dtype=np.float64)
 
-sdfg(A=A, B=B, C=C, M=M, N=N)
+sdfg(A=A, R=R, M=M, N=N)
 
-print("A + B: ", A + B)
-print("C: ", C)
+print("A: ", A)
+print("R: ", R, " expected: ", np.min(A))
