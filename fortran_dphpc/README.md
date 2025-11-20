@@ -85,6 +85,12 @@ Overview of the steps involved:
     - Runs the executable with the provided arguments.
     - Converts the results back to numpy arrays.
 
+### Reduction
+
+Reduction in the Python frontend happens here:
+- `dace/frontend/python/replacements/reduction.py`: performs the replacement of reduction operations in the SDFG.
+- `dace/frontend/operations.py`: the function `detect_reduction_type` inspects a lambda function to determine the type of reduction (sum, min, max, etc).
+
 ## Vocabulary 📕
 
 - SDFG: Stateful DataFlow multiGraph, the internal representation used by DaCe to represent programs.
