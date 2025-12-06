@@ -761,6 +761,48 @@ class ReductionReplacementTransformation(ArrayBasedReplacementTransformation):
         """
         pass
 
+    def _extract_sizes_from_subscript(
+        self, subscript: ast_internal_classes.Array_Subscript_Node, var_decl: ast_internal_classes.Var_Decl_Node
+    ) -> List[ast_internal_classes.FNode]:
+        """
+        Extract the sizes from an array subscript node.
+
+        For each dimension:
+        - If the index is a ParDecl_Node with type 'ALL', use the original size
+        - If the index is a ParDecl_Node with a range, calculate end - start + 1
+
+        :param subscript: The array subscript node with indices
+        :param var_decl: The variable declaration with original sizes
+        :return: List of size nodes for each dimension
+        """
+        sizes = []
+        original_sizes = var_decl.sizes if var_decl.sizes else []
+
+        for i, idx in enumerate(subscript.indices):
+            if not isinstance(idx, ast_internal_classes.ParDecl_Node):
+                raise ValueError(f"Unexpected index type in subscript: {type(idx)}")
+
+            if idx.type == "ALL":
+                if i >= len(original_sizes):
+                    raise ValueError(f"Index {i} exceeds original array dimensions")
+
+                sizes.append(original_sizes[i])
+                continue
+
+            # Index is a range
+            start = idx.range[0]
+            end = idx.range[1]
+
+            # Create a BinOp_Node to represent: end - start + 1
+            size_expr = ast_internal_classes.BinOp_Node(
+                op="+",
+                lval=ast_internal_classes.BinOp_Node(op="-", lval=end, rval=start),
+                rval=ast_internal_classes.Int_Literal_Node(value="1"),
+            )
+            sizes.append(size_expr)
+
+        return sizes
+
     def visit_Execution_Part_Node(self, node: ast_internal_classes.Execution_Part_Node):
         newbody = []
 
@@ -791,9 +833,51 @@ class ReductionReplacementTransformation(ArrayBasedReplacementTransformation):
             # Change the type of result variable
             self._update_result_type(child.lval)
 
+            # Determine the input for reduction - either directly or via masked array
+            reduction_input = self.argument_variable
+
+            if self.mask_variable:
+                # Create a temporary variable name for the masked output
+                masked_array_name = f"__dace_masked_{id(child)}"
+                masked_output = ast_internal_classes.Name_Node(name=masked_array_name)
+
+                # Get the type from the input array declaration
+                input_var_decl = self.get_var_declaration(child.parent, self.input_array)
+
+                # Determine the sizes for the masked array based on the subscript ranges
+                if isinstance(self.input_array, ast_internal_classes.Array_Subscript_Node):
+                    sizes = self._extract_sizes_from_subscript(self.input_array, input_var_decl)
+                else:
+                    sizes = input_var_decl.sizes
+
+                decl = ast_internal_classes.Decl_Stmt_Node(
+                    vardecl=[
+                        ast_internal_classes.Var_Decl_Node(
+                            name=masked_array_name,
+                            type=input_var_decl.type,
+                            sizes=sizes,
+                            offsets=[ast_internal_classes.Int_Literal_Node(value="1")] * len(sizes) if sizes else None,
+                            init=None,
+                        )
+                    ]
+                )
+                child.parent.specification_part.specifications.append(decl)
+
+                mask_stmt = ast_internal_classes.Where_Stmt_Node(
+                    input_array=self.input_array,
+                    input_mask=self.mask_variable,
+                    identity=self._get_reduction_identity(child),
+                    output=masked_output,
+                    line_number=child.line_number,
+                )
+                newbody.append(mask_stmt)
+
+                # Use the masked array as input to the reduction
+                reduction_input = masked_output
+
             # Generate the Reduce_Stmt_Node
             reduce_stmt = ast_internal_classes.Reduce_Stmt_Node(
-                input_array=self.argument_variable,
+                input_array=reduction_input,
                 output=child.lval,
                 axis=self._get_reduction_axis(),
                 function=self._get_reduction_function(),
@@ -1163,12 +1247,14 @@ class MinMaxValTransformation(ReductionReplacementTransformation):
     Base transformation class for MINVAL and MAXVAL intrinsics.
 
     Transforms these intrinsics into Reduce_Stmt_Node for optimized reduction operations.
-    Currently does not support the MASK and DIM arguments.
+    Currently does not support the DIM argument.
     """
 
     def _initialize(self):
         self.rvals = []
         self.argument_variable = None
+        self.mask_variable = None
+        self.input_array = None
 
     def _update_result_type(self, var: ast_internal_classes.Name_Node):
         """
@@ -1184,31 +1270,43 @@ class MinMaxValTransformation(ReductionReplacementTransformation):
         n_args = len(node.args)
 
         if n_args < 1 or n_args > 3:
-            raise NotImplementedError(
-                f"Expected one to three arguments for MINVAL/MAXVAL, got {n_args} instead."
-            )
+            raise NotImplementedError(f"Expected one to three arguments for MINVAL/MAXVAL, got {n_args} instead.")
 
-        if n_args > 1:
-            raise NotImplementedError(
-                "MASK and DIM arguments are not currently supported for MINVAL/MAXVAL"
-            )
+        if n_args > 2:
+            raise NotImplementedError("DIM argument is not currently supported for MINVAL/MAXVAL")
 
-        arr = node.args[0]
-        array_node = self._parse_array(node, arr)
-        
+        array_node = self._parse_array(node, node.args[0])
+
         if array_node is None:
             raise NotImplementedError("Expected an array as the first argument of MINVAL/MAXVAL")
-        
+
         self.rvals.append(array_node)
 
-    def _summarize_args(self, exec_node: ast_internal_classes.Execution_Part_Node, node: ast_internal_classes.FNode,
-                        new_func_body: List[ast_internal_classes.FNode]):
-        if len(self.rvals) != 1:
-            raise NotImplementedError(
-                "Only one array argument is supported for MINVAL/MAXVAL"
-            )
+        if n_args == 1:
+            return
 
+        # Second argument is the MASK
+        mask_node = self._parse_array(node, node.args[1])
+
+        if mask_node is None:
+            raise NotImplementedError("Expected an array as the MASK argument of MINVAL/MAXVAL")
+
+        self.rvals.append(mask_node)
+
+    def _summarize_args(
+        self,
+        exec_node: ast_internal_classes.Execution_Part_Node,
+        node: ast_internal_classes.FNode,
+        new_func_body: List[ast_internal_classes.FNode],
+    ):
+        if len(self.rvals) < 1 or len(self.rvals) > 2:
+            raise NotImplementedError("Expected one or two array arguments for MINVAL/MAXVAL")
+
+        self.input_array = self.rvals[0]
         self.argument_variable = self.rvals[0]
+
+        if len(self.rvals) == 2:
+            self.mask_variable = self.rvals[1]
 
     def _get_reduction_axis(self) -> Optional[List[int]]:
         """

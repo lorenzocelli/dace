@@ -305,6 +305,7 @@ class AST_translator:
             ast_internal_classes.Pointer_Assignment_Stmt_Node: self.pointerassignment2sdfg,
             ast_internal_classes.While_Stmt_Node: self.whilestmt2sdfg,
             ast_internal_classes.Reduce_Stmt_Node: self.reduction2sdfg,
+            ast_internal_classes.Where_Stmt_Node: self.where2sdfg,
         }
 
     def get_dace_type(self, typ):
@@ -929,21 +930,11 @@ class AST_translator:
         """
         from dace import Memlet, subsets
 
-        # Get input array name
         input_array = node.input_array
-        if isinstance(input_array, ast_internal_classes.Array_Subscript_Node):
-            input_name = input_array.name.name
-        elif isinstance(input_array, ast_internal_classes.Name_Node):
-            input_name = input_array.name
-        else:
-            raise ValueError(f"Unexpected input array type: {type(input_array)}")
+        input_name = ast_utils.get_name(input_array)
 
-        # Get output variable name
         output_var = node.output
-        if isinstance(output_var, ast_internal_classes.Name_Node):
-            output_name = output_var.name
-        else:
-            raise ValueError(f"Unexpected output type: {type(output_var)}")
+        output_name = ast_utils.get_name(output_var)
 
         # Map to SDFG array names
         input_mapped = self.get_name_mapping_in_context(sdfg).get(input_name)
@@ -1004,6 +995,93 @@ class AST_translator:
         outnode = substate.add_write(output_mapped)
         substate.add_nedge(inpnode, rednode, input_memlet)
         substate.add_nedge(rednode, outnode, output_memlet)
+
+    def where2sdfg(
+        self,
+        node: ast_internal_classes.Where_Stmt_Node,
+        sdfg: SDFG,
+        cfg: ControlFlowRegion,
+    ):
+        """
+        Translates a Where_Stmt_Node into an SDFG mapped tasklet operation.
+
+        This implements the equivalent of numpy.where: output[i] = input_array[i] if mask[i] else identity
+        
+        :param node: The where node containing input_array, input_mask, identity, and output
+        :param sdfg: The SDFG to which the node should be translated
+        :param cfg: The control flow region to which the node should be translated
+        """
+        from dace import Memlet
+
+        input_array = node.input_array
+        input_name = ast_utils.get_name(input_array)
+
+        mask_array = node.input_mask
+        mask_name = ast_utils.get_name(mask_array)
+
+        output_var = node.output
+        output_name = ast_utils.get_name(output_var)
+
+        # Get identity value
+        identity_val = None
+        if node.identity is not None:
+            if isinstance(node.identity, ast_internal_classes.Int_Literal_Node):
+                identity_val = node.identity.value
+            elif isinstance(node.identity, ast_internal_classes.Real_Literal_Node):
+                identity_val = node.identity.value
+            else:
+                raise ValueError(f"Unexpected identity type: {type(node.identity)}")
+
+        input_mapped = self.get_name_mapping_in_context(sdfg).get(input_name)
+        mask_mapped = self.get_name_mapping_in_context(sdfg).get(mask_name)
+        output_mapped = self.get_name_mapping_in_context(sdfg).get(output_name)
+
+        # Generate memlet subsets to handle subscript ranges properly
+        input_subset = ast_utils.generate_memlet(input_array, sdfg, self, self.normalize_offsets)
+        mask_subset = ast_utils.generate_memlet(mask_array, sdfg, self, self.normalize_offsets)
+
+        map_indices = {}
+        input_idx_parts = []
+        mask_idx_parts = []
+        output_idx_parts = []
+        
+        for i, (inp_range, mask_range) in enumerate(zip(input_subset, mask_subset)):
+            idx_var = f"__i{i}"
+
+            # Map range is from 0 to (end - start)
+            range_size = inp_range[1] - inp_range[0] + 1
+            map_indices[idx_var] = f"0:{range_size}"
+            
+            input_idx_parts.append(f"{inp_range[0]} + {idx_var}")
+            mask_idx_parts.append(f"{mask_range[0]} + {idx_var}")
+            output_idx_parts.append(idx_var)
+
+        input_idx_str = ", ".join(input_idx_parts)
+        mask_idx_str = ", ".join(mask_idx_parts)
+        output_idx_str = ", ".join(output_idx_parts)
+
+        inputs = {
+            '__in_arr': Memlet.simple(input_mapped, input_idx_str),
+            '__in_mask': Memlet.simple(mask_mapped, mask_idx_str)
+        }
+
+        outputs = {
+            '__out': Memlet.simple(output_mapped, output_idx_str)
+        }
+
+        tasklet_code = f"__out = __in_arr if __in_mask else {identity_val}"
+
+        substate = self._add_simple_state_to_cfg(
+            cfg, f"Where_l{node.line_number[0]}"
+        )
+        substate.add_mapped_tasklet(
+            "_where_",
+            map_indices,
+            inputs,
+            tasklet_code,
+            outputs,
+            external_edges=True
+        )
 
     def symbol2sdfg(self, node: ast_internal_classes.Symbol_Decl_Node, sdfg: SDFG, cfg: ControlFlowRegion):
         """

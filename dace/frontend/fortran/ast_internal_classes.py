@@ -774,6 +774,16 @@ class Reduce_Stmt_Node(FNode):
     )
 
 
+class Where_Stmt_Node(FNode):
+    _attributes = ()
+    _fields = (
+        'input_array',
+        'input_mask',
+        'identity',
+        'output'
+    )
+
+
 class If_Stmt_Node(FNode):
     _attributes = ()
     _fields = (
