@@ -382,8 +382,6 @@ class LoopBasedReplacement:
         "ANY": "__dace_any",
         "ALL": "__dace_all",
         "COUNT": "__dace_count",
-        "MINVAL": "__dace_minval",
-        "MAXVAL": "__dace_maxval",
         "MERGE": "__dace_merge"
     }
 
@@ -396,9 +394,10 @@ class LoopBasedReplacement:
         return True
 
 
-class LoopBasedReplacementVisitor(NodeVisitor):
+class IntrinsicCallVisitor(NodeVisitor):
     """
-    Finds all intrinsic operations that have to be transformed to loops in the AST
+    Finds all intrinsic operations that need to be transformed in the AST.
+    Used by both LoopBasedReplacementTransformation and ReductionReplacementTransformation.
     """
 
     def __init__(self, func_name: str):
@@ -424,9 +423,21 @@ class LoopBasedReplacementVisitor(NodeVisitor):
         return
 
 
-class LoopBasedReplacementTransformation(IntrinsicNodeTransformer):
+class ArrayBasedReplacementTransformation(IntrinsicNodeTransformer):
     """
-    Transforms the AST by removing intrinsic call and replacing it with loops
+    Common base class for transformations that process array-based intrinsic operations.
+
+    This class provides shared functionality for both LoopBasedReplacementTransformation
+    and ReductionReplacementTransformation, including array parsing and argument processing.
+
+    When replacing Fortran's AST reference to an intrinsic function, we set a dummy variable with VOID type.
+    The reason is that at the point, we do not know the types of arguments. For many intrinsics, the return
+    type will depend on the input types.
+
+    When transforming the AST, we gather all scopes and variable declarations in that scope.
+    Then, we can query the types of input arguments and properly determine the return type.
+
+    Both the type of the variable and its corresponding Var_Decl_node need to be updated!
     """
 
     def __init__(self):
@@ -435,41 +446,23 @@ class LoopBasedReplacementTransformation(IntrinsicNodeTransformer):
 
     @abstractmethod
     def _initialize(self):
+        """Initialize transformation state for processing a new intrinsic call."""
         pass
 
     @abstractmethod
     def _parse_call_expr_node(self, node: ast_internal_classes.Call_Expr_Node):
+        """Parse the intrinsic call and extract relevant information."""
         pass
 
     @abstractmethod
     def _summarize_args(self, exec_node: ast_internal_classes.Execution_Part_Node, node: ast_internal_classes.FNode,
                         new_func_body: List[ast_internal_classes.FNode]):
+        """Process and validate arguments, prepare for code generation."""
         pass
-
-    @abstractmethod
-    def _initialize_result(self, node: ast_internal_classes.FNode) -> Optional[ast_internal_classes.BinOp_Node]:
-        pass
-
-    @abstractmethod
-    def _generate_loop_body(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
-        pass
-
-    def _skip_result_assignment(self):
-        return False
-
-    """
-        When replacing Fortran's AST reference to an intrinsic function, we set a dummy variable with VOID type.
-        The reason is that at the point, we do not know the types of arguments. For many intrinsics, the return
-        type will depend on the input types.
-
-        When transforming the AST, we gather all scopes and variable declarations in that scope.
-        Then, we can query the types of input arguments and properly determine the return type.
-
-        Both the type of the variable and its corresponding Var_Decl_node need to be updated!
-    """
 
     @abstractmethod
     def _update_result_type(self, var: ast_internal_classes.Name_Node):
+        """Update the result variable type based on input arguments."""
         pass
 
     def _parse_array(self,
@@ -532,6 +525,25 @@ class LoopBasedReplacementTransformation(IntrinsicNodeTransformer):
             return arg
 
         return None
+
+
+class LoopBasedReplacementTransformation(ArrayBasedReplacementTransformation):
+    """
+    Transforms the AST by removing intrinsic call and replacing it with loops.
+    """
+
+    @abstractmethod
+    def _initialize_result(self, node: ast_internal_classes.FNode) -> Optional[ast_internal_classes.BinOp_Node]:
+        """Initialize the result variable before the loop."""
+        pass
+
+    @abstractmethod
+    def _generate_loop_body(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
+        """Generate the loop body for this intrinsic."""
+        pass
+
+    def _skip_result_assignment(self):
+        return False
 
     def _parse_binary_op(self, node: ast_internal_classes.Call_Expr_Node, arg: ast_internal_classes.BinOp_Node) -> \
             Tuple[
@@ -630,7 +642,7 @@ class LoopBasedReplacementTransformation(IntrinsicNodeTransformer):
         newbody = []
 
         for child in node.execution:
-            lister = LoopBasedReplacementVisitor(self.func_name())
+            lister = IntrinsicCallVisitor(self.func_name())
             lister.visit(child)
             res = lister.nodes
 
@@ -697,6 +709,100 @@ class LoopBasedReplacementTransformation(IntrinsicNodeTransformer):
             newbody.append(body)
 
             self.count = self.count + range_index
+        return ast_internal_classes.Execution_Part_Node(execution=newbody)
+
+
+class ReductionReplacement:
+    """
+    Base class for intrinsic operations that should be transformed into Reduce_Stmt_Node.
+
+    Similar to LoopBasedReplacement, but instead of generating explicit loops,
+    this class generates reduction statements that can be mapped to optimized
+    reduction implementations in DaCe.
+    """
+
+    INTRINSIC_TO_DACE = {"MINVAL": "__dace_minval", "MAXVAL": "__dace_maxval"}
+
+    @staticmethod
+    def replaced_name(func_name: str) -> str:
+        return ReductionReplacement.INTRINSIC_TO_DACE[func_name]
+
+    @staticmethod
+    def has_transformation() -> bool:
+        return True
+
+
+class ReductionReplacementTransformation(ArrayBasedReplacementTransformation):
+    """
+    Transforms the AST by removing intrinsic call and replacing it with a Reduce_Stmt_Node.
+
+    Unlike LoopBasedReplacementTransformation which generates explicit loops,
+    this transformation generates reduction statements that can be optimized
+    by the DaCe backend.
+    """
+
+    @abstractmethod
+    def _get_reduction_function(self) -> str:
+        """Return the reduction function name (e.g., 'min', 'max', 'sum')."""
+        pass
+
+    @abstractmethod
+    def _get_reduction_identity(
+        self, node: ast_internal_classes.FNode
+    ) -> ast_internal_classes.FNode:
+        """Return the identity value for the reduction operation."""
+        pass
+
+    @abstractmethod
+    def _get_reduction_axis(self) -> Optional[List[int]]:
+        """
+        Return the axis/axes along which to reduce.
+        None means reduce over all axes.
+        """
+        pass
+
+    def visit_Execution_Part_Node(self, node: ast_internal_classes.Execution_Part_Node):
+        newbody = []
+
+        for child in node.execution:
+            lister = IntrinsicCallVisitor(self.func_name())
+            lister.visit(child)
+            res = lister.nodes
+
+            if res is None or len(res) == 0:
+                newbody.append(self.visit(child))
+                continue
+
+            # We need to reinitialize variables as the class is reused for transformation
+            # between different calls to the same intrinsic.
+            self._initialize()
+
+            # Visit all intrinsic arguments and extract arrays
+            for i in mywalk(child.rval):
+                if (
+                    isinstance(i, ast_internal_classes.Call_Expr_Node)
+                    and i.name.name == self.func_name()
+                ):
+                    self._parse_call_expr_node(i)
+
+            # Verify that all of intrinsic args are correct and prepare them for reduction generation
+            self._summarize_args(node, child, newbody)
+
+            # Change the type of result variable
+            self._update_result_type(child.lval)
+
+            # Generate the Reduce_Stmt_Node
+            reduce_stmt = ast_internal_classes.Reduce_Stmt_Node(
+                input_array=self.argument_variable,
+                output=child.lval,
+                axis=self._get_reduction_axis(),
+                function=self._get_reduction_function(),
+                identity=self._get_reduction_identity(child),
+                line_number=child.line_number,
+            )
+
+            newbody.append(reduce_stmt)
+
         return ast_internal_classes.Execution_Part_Node(execution=newbody)
 
 
@@ -1052,7 +1158,13 @@ class Count(LoopBasedReplacement):
         return [], "INTEGER"
 
 
-class MinMaxValTransformation(LoopBasedReplacementTransformation):
+class MinMaxValTransformation(ReductionReplacementTransformation):
+    """
+    Base transformation class for MINVAL and MAXVAL intrinsics.
+
+    Transforms these intrinsics into Reduce_Stmt_Node for optimized reduction operations.
+    Currently does not support the MASK and DIM arguments.
+    """
 
     def _initialize(self):
         self.rvals = []
@@ -1060,9 +1172,8 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
 
     def _update_result_type(self, var: ast_internal_classes.Name_Node):
         """
-            For both MINVAL and MAXVAL, the result type depends on the input variable.
+        For both MINVAL and MAXVAL, the result type depends on the input variable.
         """
-
         input_type = self.get_var_declaration(var.parent, self.argument_variable)
 
         var_decl = self.get_var_declaration(var.parent, var)
@@ -1070,105 +1181,70 @@ class MinMaxValTransformation(LoopBasedReplacementTransformation):
         var_decl.type = input_type.type
 
     def _parse_call_expr_node(self, node: ast_internal_classes.Call_Expr_Node):
-        arr = None
-        mask = None
-        dim = None
-
-        # TODO: what happens if we have mask as a named argument?
         n_args = len(node.args)
 
-        if n_args == 1:
-            arr = node.args[0]
-        elif n_args == 2:
-            arr, mask = node.args
-        elif n_args == 3:
-            arr, dim, mask = node.args
-        else:
-            raise NotImplementedError(f"Expected either one, two or three arguments for MINVAL/MAXVAL, got {n_args} instead.")
-        
+        if n_args < 1 or n_args > 3:
+            raise NotImplementedError(
+                f"Expected one to three arguments for MINVAL/MAXVAL, got {n_args} instead."
+            )
+
+        if n_args > 1:
+            raise NotImplementedError(
+                "MASK and DIM arguments are not currently supported for MINVAL/MAXVAL"
+            )
+
+        arr = node.args[0]
         array_node = self._parse_array(node, arr)
         
         if array_node is None:
             raise NotImplementedError("Expected an array as the first argument of MINVAL/MAXVAL")
         
         self.rvals.append(array_node)
-        
-        if mask is None:
-            return
-        
-        mask_node = self._parse_array(node, mask)
-        
-        if mask_node is None:
-            raise NotImplementedError("Expected an array as the MASK argument of MINVAL/MAXVAL")
-
-        self.rvals.append(mask_node)
 
     def _summarize_args(self, exec_node: ast_internal_classes.Execution_Part_Node, node: ast_internal_classes.FNode,
                         new_func_body: List[ast_internal_classes.FNode]):
+        if len(self.rvals) != 1:
+            raise NotImplementedError(
+                "Only one array argument is supported for MINVAL/MAXVAL"
+            )
+
         self.argument_variable = self.rvals[0]
 
-        par_Decl_Range_Finder(self.argument_variable,
-                              self.loop_ranges, [],
-                              self.count,
-                              new_func_body,
-                              self.scope_vars,
-                              self.ast.structures,
-                              declaration=True)
-        
-        self.mask_variable = None
+    def _get_reduction_axis(self) -> Optional[List[int]]:
+        """
+        Without DIM parameter, reduce over all axes.
+        """
+        return None
 
-        if len(self.rvals) > 1:
-            # User specified a mask, for which we can use the same ranges as the argument variable 
-            self.mask_variable = self.rvals[1]
-            self.mask_variable.indices = self.argument_variable.indices
+    @abstractmethod
+    def _get_reduction_function(self) -> str:
+        """Return 'min' or 'max' depending on the intrinsic."""
+        pass
 
-
-    def _initialize_result(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
-
-        return ast_internal_classes.BinOp_Node(lval=node.lval,
-                                               op="=",
-                                               rval=self._result_init_value(self.argument_variable),
-                                               line_number=node.line_number)
-
-    def _generate_loop_body(self, node: ast_internal_classes.FNode) -> ast_internal_classes.BinOp_Node:
-        cond = ast_internal_classes.BinOp_Node(lval=self.argument_variable,
-                                               op=self._condition_op(),
-                                               rval=node.lval,
-                                               line_number=node.line_number)
-        
-        if self.mask_variable is not None:
-            cond = ast_internal_classes.BinOp_Node(
-                lval=cond,
-                op=".AND.",
-                rval=self.mask_variable,
-                line_number=node.line_number
-            )
-        
-        body_if = ast_internal_classes.BinOp_Node(lval=node.lval,
-                                                  op="=",
-                                                  rval=copy.deepcopy(self.argument_variable),
-                                                  line_number=node.line_number)
-        
-        return ast_internal_classes.If_Stmt_Node(cond=cond,
-                                                 body=body_if,
-                                                 body_else=ast_internal_classes.Execution_Part_Node(execution=[]),
-                                                 line_number=node.line_number)
+    @abstractmethod
+    def _get_reduction_identity(
+        self, node: ast_internal_classes.FNode
+    ) -> ast_internal_classes.FNode:
+        """Return the identity value for min/max reduction."""
+        pass
 
 
-class MinVal(LoopBasedReplacement):
+class MinVal(ReductionReplacement):
     """
-        In this class, we implement the transformation for Fortran intrinsic MINVAL.
+    Transformation for Fortran intrinsic MINVAL.
 
-        We do not support the MASK and DIM argument.
+    Generates a Reduce_Stmt_Node with min reduction function.
+    Currently does not support the MASK and DIM arguments.
     """
 
     class Transformation(MinMaxValTransformation):
+        def _get_reduction_function(self) -> str:
+            return "min"
 
-        def _result_init_value(self, array: ast_internal_classes.Array_Subscript_Node):
+        def _get_reduction_identity(self, node: ast_internal_classes.FNode) -> ast_internal_classes.FNode:
+            var_decl = self.get_var_declaration(self.argument_variable.parent, self.argument_variable)
 
-            var_decl = self.get_var_declaration(array.parent, array)
-
-            # TODO: this should be used as a call to HUGE
+            # Identity for min is the maximum possible value
             fortran_type = var_decl.type
             dace_type = fortrantypes2dacetypes[fortran_type]
             from dace.dtypes import max_value
@@ -1176,11 +1252,8 @@ class MinVal(LoopBasedReplacement):
 
             if fortran_type == "INTEGER":
                 return ast_internal_classes.Int_Literal_Node(value=str(max_val))
-            elif fortran_type == "DOUBLE":
+            else:
                 return ast_internal_classes.Real_Literal_Node(value=str(max_val))
-
-        def _condition_op(self):
-            return "<"
 
         @staticmethod
         def func_name() -> str:
@@ -1188,7 +1261,6 @@ class MinVal(LoopBasedReplacement):
 
     @staticmethod
     def output_size(args: ast_internal_classes.FNode) -> Optional[Tuple[list, str]]:
-
         first_arg = args[0]
         if first_arg.type == 'VOID':
             return None
@@ -1197,20 +1269,22 @@ class MinVal(LoopBasedReplacement):
         return [], first_arg.type
 
 
-class MaxVal(LoopBasedReplacement):
+class MaxVal(ReductionReplacement):
     """
-        In this class, we implement the transformation for Fortran intrinsic MAXVAL.
+    Transformation for Fortran intrinsic MAXVAL.
 
-        We do not support the MASK and DIM argument.
+    Generates a Reduce_Stmt_Node with max reduction function.
+    Currently does not support the MASK and DIM arguments.
     """
 
     class Transformation(MinMaxValTransformation):
+        def _get_reduction_function(self) -> str:
+            return "max"
 
-        def _result_init_value(self, array: ast_internal_classes.Array_Subscript_Node):
+        def _get_reduction_identity(self, node: ast_internal_classes.FNode) -> ast_internal_classes.FNode:
+            var_decl = self.get_var_declaration(self.argument_variable.parent, self.argument_variable)
 
-            var_decl = self.get_var_declaration(array.parent, array)
-
-            # TODO: this should be used as a call to HUGE
+            # Identity for max is the minimum possible value
             fortran_type = var_decl.type
             dace_type = fortrantypes2dacetypes[fortran_type]
             from dace.dtypes import min_value
@@ -1220,9 +1294,8 @@ class MaxVal(LoopBasedReplacement):
                 return ast_internal_classes.Int_Literal_Node(value=str(min_val))
             elif fortran_type == "DOUBLE":
                 return ast_internal_classes.Real_Literal_Node(value=str(min_val))
-
-        def _condition_op(self):
-            return ">"
+            else:
+                return ast_internal_classes.Real_Literal_Node(value=str(min_val))
 
         @staticmethod
         def func_name() -> str:
@@ -1230,7 +1303,6 @@ class MaxVal(LoopBasedReplacement):
 
     @staticmethod
     def output_size(args: ast_internal_classes.FNode) -> Optional[Tuple[list, str]]:
-
         first_arg = args[0]
         if first_arg.type == 'VOID':
             return None

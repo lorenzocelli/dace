@@ -450,8 +450,10 @@ def generate_memlet(op, top_sdfg, state, offset_normalization=False, mapped_name
                                        placeholders_offsets=state.placeholders_offsets)
                     text_start = tw.write_code(i.range[0])
                     text_end = tw.write_code(i.range[1])
-                    symb_start = sym.pystr_to_symbolic(text_start + "-1")
-                    symb_end = sym.pystr_to_symbolic(text_end + "-1")
+                    # ParDeclOffsetNormalizer already converts to 0-based indices,
+                    # so we don't need to subtract 1 here
+                    symb_start = sym.pystr_to_symbolic(text_start)
+                    symb_end = sym.pystr_to_symbolic(text_end)
                     indices.append([symb_start, symb_end])
             else:
                 tw = TaskletWriter([], [],
@@ -514,8 +516,10 @@ def generate_memlet_view(op,
                                        placeholders_offsets=state.placeholders_offsets)
                     text_start = tw.write_code(i.range[0])
                     text_end = tw.write_code(i.range[1])
-                    symb_start = sym.pystr_to_symbolic(text_start + "-1")
-                    symb_end = sym.pystr_to_symbolic(text_end + "-1")
+                    # ParDeclOffsetNormalizer already converts to 0-based indices,
+                    # so we don't need to subtract 1 here
+                    symb_start = sym.pystr_to_symbolic(text_start)
+                    symb_end = sym.pystr_to_symbolic(text_end)
                     indices.append([symb_start, symb_end])
             else:
                 tw = TaskletWriter([], [],

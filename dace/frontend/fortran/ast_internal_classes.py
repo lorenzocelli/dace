@@ -763,6 +763,17 @@ class Map_Stmt_Node(For_Stmt_Node):
     )
 
 
+class Reduce_Stmt_Node(FNode):
+    _attributes = ()
+    _fields = (
+        'input_array',
+        'output',
+        'axis',
+        'function',
+        'identity'
+    )
+
+
 class If_Stmt_Node(FNode):
     _attributes = ()
     _fields = (

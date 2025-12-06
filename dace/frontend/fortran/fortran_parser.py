@@ -304,6 +304,7 @@ class AST_translator:
             ast_internal_classes.Derived_Type_Def_Node: self.derivedtypedef2sdfg,
             ast_internal_classes.Pointer_Assignment_Stmt_Node: self.pointerassignment2sdfg,
             ast_internal_classes.While_Stmt_Node: self.whilestmt2sdfg,
+            ast_internal_classes.Reduce_Stmt_Node: self.reduction2sdfg,
         }
 
     def get_dace_type(self, typ):
@@ -912,6 +913,97 @@ class AST_translator:
                                                                    is_start_block=True)
 
         self.translate(node.body, sdfg, loop_region)
+
+    def reduction2sdfg(
+        self,
+        node: ast_internal_classes.Reduce_Stmt_Node,
+        sdfg: SDFG,
+        cfg: ControlFlowRegion,
+    ):
+        """
+        Translates a Reduce_Stmt_Node into an SDFG reduction operation.
+
+        :param node: The reduction node containing input_array, output, axis, function, and identity
+        :param sdfg: The SDFG to which the node should be translated
+        :param cfg: The control flow region to which the node should be translated
+        """
+        from dace import Memlet, subsets
+
+        # Get input array name
+        input_array = node.input_array
+        if isinstance(input_array, ast_internal_classes.Array_Subscript_Node):
+            input_name = input_array.name.name
+        elif isinstance(input_array, ast_internal_classes.Name_Node):
+            input_name = input_array.name
+        else:
+            raise ValueError(f"Unexpected input array type: {type(input_array)}")
+
+        # Get output variable name
+        output_var = node.output
+        if isinstance(output_var, ast_internal_classes.Name_Node):
+            output_name = output_var.name
+        else:
+            raise ValueError(f"Unexpected output type: {type(output_var)}")
+
+        # Map to SDFG array names
+        input_mapped = self.get_name_mapping_in_context(sdfg).get(input_name)
+        output_mapped = self.get_name_mapping_in_context(sdfg).get(output_name)
+
+        if input_mapped is None:
+            raise ValueError(f"Input array '{input_name}' not found in SDFG")
+        if output_mapped is None:
+            raise ValueError(f"Output variable '{output_name}' not found in SDFG")
+
+        # Get array descriptors
+        output_arr = self.get_arrays_in_context(sdfg).get(output_mapped)
+
+        # Build the reduction function string
+        func = node.function
+        if func == "min":
+            wcr = "lambda a, b: min(a, b)"
+        elif func == "max":
+            wcr = "lambda a, b: max(a, b)"
+        elif func == "sum":
+            wcr = "lambda a, b: a + b"
+        elif func == "product":
+            wcr = "lambda a, b: a * b"
+        else:
+            raise ValueError(f"Unsupported reduction function: {func}")
+
+        # Get identity value
+        identity = None
+        if node.identity is not None:
+            if isinstance(node.identity, ast_internal_classes.Int_Literal_Node):
+                identity = int(node.identity.value)
+            elif isinstance(node.identity, ast_internal_classes.Real_Literal_Node):
+                identity = float(node.identity.value)
+
+        # Create state and nodes
+        substate = self._add_simple_state_to_cfg(
+            cfg, f"Reduction_l{node.line_number[0]}"
+        )
+
+        # Create input memlet using generate_memlet to handle subscript ranges properly
+        input_subset = ast_utils.generate_memlet(
+            input_array, sdfg, self, self.normalize_offsets
+        )
+
+        if isinstance(input_subset, str):
+            # Scalar case
+            input_memlet = Memlet.simple(input_mapped, input_subset)
+        else:
+            # Range case
+            input_memlet = Memlet.simple(input_mapped, input_subset)
+
+        output_subset = subsets.Range.from_array(output_arr)
+        output_memlet = Memlet.simple(output_mapped, output_subset)
+
+        # Reduce subgraph
+        inpnode = substate.add_read(input_mapped)
+        rednode = substate.add_reduce(wcr, node.axis, identity)
+        outnode = substate.add_write(output_mapped)
+        substate.add_nedge(inpnode, rednode, input_memlet)
+        substate.add_nedge(rednode, outnode, output_memlet)
 
     def symbol2sdfg(self, node: ast_internal_classes.Symbol_Decl_Node, sdfg: SDFG, cfg: ControlFlowRegion):
         """
