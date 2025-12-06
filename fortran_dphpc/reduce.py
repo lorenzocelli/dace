@@ -55,20 +55,26 @@ def simple_masked_reduction_1(
     R[0] = dace.reduce(lambda a, b: min(a, b), np.where(B, A, np.inf), identity=np.inf)
 
 
+print("Creating SDFG...")
 sdfg = simple_masked_reduction_1.to_sdfg()
 sdfg.apply_transformations(GPUTransformMap)
 sdfg.simplify()
-sdfg.save(os.path.join(os.path.dirname(__file__), "fortran_dphpc_reduce_sdfg.sdfg"))
 
-M = 3
-N = 5
+# Optional: save SDFG to file for inspection
+# sdfg.save(os.path.join(os.path.dirname(__file__), "fortran_dphpc_reduce_sdfg.sdfg"))
 
+M = 3000
+N = 5000
+
+print("Generating data...")
+random = np.random.default_rng(12464)
 A = (np.random.rand(M, N) * 10).round().astype(np.float64) + 1.0
 B = np.random.rand(M, N) > 0.5
 R = np.zeros([1], dtype=np.float64)
 
 exp = np.min(A[B])
 
+print("Running program...")
 sdfg(
     A=A,
     B=B,

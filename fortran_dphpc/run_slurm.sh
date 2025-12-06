@@ -16,8 +16,5 @@ source .venv/bin/activate
 # Clear DaCe cache to avoid stale data
 rm -rf .dacecache/simple_masked_reduction_1
 
-# Clear logs
-rm -rf logs/*
-
 export CUDACXX=/cluster/data/cuda/12.8.1/bin/nvcc
 python -m fortran_dphpc.reduce
