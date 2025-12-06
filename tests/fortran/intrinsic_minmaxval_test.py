@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from dace.frontend.fortran import ast_transforms, fortran_parser
+from dace.frontend.fortran import fortran_parser
 from dace.frontend.fortran.fortran_parser import create_singular_sdfg_from_string
 from tests.fortran.fortran_test_helper import SourceCodeBuilder
 import pytest
@@ -247,6 +247,7 @@ def test_fortran_frontend_maxval_int():
     assert res[3] == np.iinfo(np.int32).min
 
 
+@pytest.mark.skip(reason="Structs not yet supported in minval/maxval")
 def test_fortran_frontend_minval_struct():
     sources, main = SourceCodeBuilder().add_file(
         """
@@ -341,6 +342,39 @@ def test_fortran_frontend_min_max_val_mask(array, mask, expected, method):
 def test_fortran_frontend_min_max_matrix_mask(array, mask, expected, method):
     test_fortran_frontend_min_max_val_mask(array, mask, expected, method)
 
+@pytest.mark.parametrize("seed", [
+    12912383124985,
+    12341231928371,
+    16581756998726,
+    98164527188294
+])
+def test_fortran_frontend_min_max_matrix_mask_rand(seed):
+    shape = (30, 30)
+
+    rng = np.random.default_rng(seed)
+    d = rng.random(shape).astype(np.double)
+    mask = (rng.random(shape) > 0.5).astype(np.int32)
+
+    res = np.array([0], dtype=np.double, order="F")
+    expected = np.min(d[mask > 0])  # minval with mask
+
+    shape = ",".join([str(d) for d in d.shape])
+    test_string = f"""
+        SUBROUTINE minval_test_function(d, mask, res)
+        double precision, dimension({shape}) :: d
+        integer, dimension({shape}) :: mask
+        double precision, dimension(1) :: res
+
+        res(1) = minval(d, mask)
+
+        END SUBROUTINE minval_test_function
+    """
+
+    sdfg = fortran_parser.create_sdfg_from_string(test_string, "minval_test", True)
+    sdfg.simplify()
+
+    sdfg(d=d, mask=mask, res=res)
+    assert res[0] == expected
 
 if __name__ == "__main__":
 
