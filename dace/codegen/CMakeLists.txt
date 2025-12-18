@@ -566,6 +566,10 @@ include("targets/mlir/mlir.cmake")
 add_library(${DACE_PROGRAM_NAME} SHARED ${DACE_CPP_FILES} ${DACE_OBJECTS})
 target_link_libraries(${DACE_PROGRAM_NAME} PUBLIC ${DACE_LIBS})
 
+# Uncomment to create DaCe executable (requires a main source file)
+# add_executable(${DACE_PROGRAM_NAME}_run ${DACE_CPP_FILES} ${DACE_OBJECTS})
+# target_link_libraries(${DACE_PROGRAM_NAME}_run PUBLIC ${DACE_LIBS})
+
 # Add additional required files
 if(DACE_ENABLE_INTELFPGA)
   if(DACE_INTELFPGA_MODE STREQUAL "emulator")
