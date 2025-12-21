@@ -8,6 +8,7 @@ set(DACE_SRC_DIR "" CACHE STRING "Root directory of generated code files")
 set(DACE_FILES "" CACHE STRING "List of host code files relative to the root of the source directory")
 set(DACE_LIBS "" CACHE STRING "Extra libraries")
 set(HLSLIB_PART_NAME "${DACE_XILINX_PART_NAME}")
+set(DACE_OUTPUT_EXECUTABLE ON)
 
 # CUDA
 set(DACE_CUDA_ARCHITECTURES_DEFAULT "" CACHE STRING "Default CUDA architectures in case native not found")
@@ -566,9 +567,11 @@ include("targets/mlir/mlir.cmake")
 add_library(${DACE_PROGRAM_NAME} SHARED ${DACE_CPP_FILES} ${DACE_OBJECTS})
 target_link_libraries(${DACE_PROGRAM_NAME} PUBLIC ${DACE_LIBS})
 
-# Uncomment to create DaCe executable (requires a main source file)
-# add_executable(${DACE_PROGRAM_NAME}_run ${DACE_CPP_FILES} ${DACE_OBJECTS})
-# target_link_libraries(${DACE_PROGRAM_NAME}_run PUBLIC ${DACE_LIBS})
+if(DACE_OUTPUT_EXECUTABLE)
+  # Create an executable (note: requires adding a main file to DACE_FILES)
+  add_executable(${DACE_PROGRAM_NAME}_run ${DACE_CPP_FILES} ${DACE_OBJECTS})
+  target_link_libraries(${DACE_PROGRAM_NAME}_run PUBLIC ${DACE_LIBS})
+endif()
 
 # Add additional required files
 if(DACE_ENABLE_INTELFPGA)
