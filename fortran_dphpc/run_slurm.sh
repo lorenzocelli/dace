@@ -14,7 +14,7 @@ nvidia-smi
 source .venv/bin/activate
 
 # Clear DaCe cache to avoid stale data
-rm -rf .dacecache/simple_masked_reduction_1
+rm -rf .dacecache
 
 export CUDACXX=/cluster/data/cuda/12.8.1/bin/nvcc
-python -m fortran_dphpc.reduce
+python -m fortran_dphpc.py_minval
