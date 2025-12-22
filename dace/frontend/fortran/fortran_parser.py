@@ -986,7 +986,9 @@ class AST_translator:
             # Range case
             input_memlet = Memlet.simple(input_mapped, input_subset)
 
-        output_subset = subsets.Range.from_array(output_arr)
+        output_subset = ast_utils.generate_memlet(
+            output_var, sdfg, self, self.normalize_offsets
+        )
         output_memlet = Memlet.simple(output_mapped, output_subset)
 
         # Reduce subgraph
@@ -2296,7 +2298,7 @@ class AST_translator:
                 output_names.append(mapped_name)
                 output_names_tasklet.append(i.name)
 
-        inputnodefinder = ast_transforms.FindInputs()
+        inputnodefinder = ast_transforms.FindInputsWithSizeCheck(self, sdfg)
         inputnodefinder.visit(node)
         input_vars = inputnodefinder.nodes
         input_names = []

@@ -403,6 +403,58 @@ class FindInputs(NodeVisitor):
             self.visit(node.rval)
 
 
+class FindInputsWithSizeCheck(FindInputs):
+    def __init__(self, parser, sdfg):
+        super().__init__()
+        self.parser = parser
+        self.sdfg = sdfg
+
+    def visit_Array_Subscript_Node(self, node: ast_internal_classes.Array_Subscript_Node):
+        self.nodes.append(node.name)
+        
+        mapped_name = self.parser.get_name_mapping_in_context(self.sdfg).get(node.name.name)
+        arrays = self.parser.get_arrays_in_context(self.sdfg)
+        
+        if mapped_name and mapped_name in arrays:
+            arr = arrays[mapped_name]
+            if arr.shape is None or (len(arr.shape) == 1 and str(arr.shape[0]) == "1"):
+                return 
+
+        for i in node.indices:
+            self.visit(i)
+
+    def visit_BinOp_Node(self, node: ast_internal_classes.BinOp_Node):
+        if node.op == "=":
+            if isinstance(node.lval, ast_internal_classes.Name_Node):
+                pass
+            elif isinstance(node.lval, ast_internal_classes.Array_Subscript_Node):
+                mapped_name = self.parser.get_name_mapping_in_context(self.sdfg).get(node.lval.name.name)
+                arrays = self.parser.get_arrays_in_context(self.sdfg)
+                skip = False
+                if mapped_name and mapped_name in arrays:
+                    arr = arrays[mapped_name]
+                    if arr.shape is None or (len(arr.shape) == 1 and str(arr.shape[0]) == "1"):
+                        skip = True
+                
+                if not skip:
+                    for i in node.lval.indices:
+                        self.visit(i)
+            elif isinstance(node.lval, ast_internal_classes.Data_Ref_Node):
+                # Simplified handling for Data_Ref_Node, assuming no size-1 optimization there for now
+                if isinstance(node.lval.parent_ref, ast_internal_classes.Array_Subscript_Node):
+                    for i in node.lval.parent_ref.indices:
+                        self.visit(i)
+                if isinstance(node.lval.part_ref, ast_internal_classes.Data_Ref_Node):
+                    self.visit_Blunt_Data_Ref_Node(node.lval.part_ref)
+                elif isinstance(node.lval.part_ref, ast_internal_classes.Array_Subscript_Node):
+                    for i in node.lval.part_ref.indices:
+                        self.visit(i)
+            
+            self.visit(node.rval)
+        else:
+            super().visit_BinOp_Node(node)
+
+
 class FindOutputs(NodeVisitor):
     """
     Finds all outputs (writes) in the AST node and its children
