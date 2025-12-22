@@ -8,7 +8,7 @@ set(DACE_SRC_DIR "" CACHE STRING "Root directory of generated code files")
 set(DACE_FILES "" CACHE STRING "List of host code files relative to the root of the source directory")
 set(DACE_LIBS "" CACHE STRING "Extra libraries")
 set(HLSLIB_PART_NAME "${DACE_XILINX_PART_NAME}")
-set(DACE_OUTPUT_EXECUTABLE "Produce an executable for the program" OFF)
+set(DACE_OUTPUT_EXECUTABLE OFF CACHE BOOL "Produce an executable for the program")
 
 # CUDA
 set(DACE_CUDA_ARCHITECTURES_DEFAULT "" CACHE STRING "Default CUDA architectures in case native not found")
