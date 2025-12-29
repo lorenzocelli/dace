@@ -928,7 +928,7 @@ class AST_translator:
         :param sdfg: The SDFG to which the node should be translated
         :param cfg: The control flow region to which the node should be translated
         """
-        from dace import Memlet, subsets
+        from dace import Memlet
 
         input_array = node.input_array
         input_name = ast_utils.get_name(input_array)
@@ -944,9 +944,6 @@ class AST_translator:
             raise ValueError(f"Input array '{input_name}' not found in SDFG")
         if output_mapped is None:
             raise ValueError(f"Output variable '{output_name}' not found in SDFG")
-
-        # Get array descriptors
-        output_arr = self.get_arrays_in_context(sdfg).get(output_mapped)
 
         # Build the reduction function string
         func = node.function

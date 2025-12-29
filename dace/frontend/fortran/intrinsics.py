@@ -1272,21 +1272,27 @@ class MinMaxValTransformation(ReductionReplacementTransformation):
         if n_args < 1 or n_args > 3:
             raise NotImplementedError(f"Expected one to three arguments for MINVAL/MAXVAL, got {n_args} instead.")
 
-        if n_args > 2:
-            raise NotImplementedError("DIM argument is not currently supported for MINVAL/MAXVAL")
-
         array_node = self._parse_array(node, node.args[0])
 
         if array_node is None:
             raise NotImplementedError("Expected an array as the first argument of MINVAL/MAXVAL")
 
         self.rvals.append(array_node)
+        self.reduction_axis = None
 
         if n_args == 1:
             return
 
-        # Second argument is the MASK
-        mask_node = self._parse_array(node, node.args[1])
+        mask_node = None
+        if n_args > 2:
+            if not isinstance(node.args[1], ast_internal_classes.Int_Literal_Node):
+                raise NotImplementedError("Only constant DIM argument is supported for MINVAL/MAXVAL")
+            # Expect DIM, MASK arguments
+            self.reduction_axis = [int(node.args[1].value) - 1]
+            mask_node = self._parse_array(node, node.args[2])
+        elif n_args == 2:
+            # Second argument is the MASK
+            mask_node = self._parse_array(node, node.args[1])
 
         if mask_node is None:
             raise NotImplementedError("Expected an array as the MASK argument of MINVAL/MAXVAL")
@@ -1309,10 +1315,7 @@ class MinMaxValTransformation(ReductionReplacementTransformation):
             self.mask_variable = self.rvals[1]
 
     def _get_reduction_axis(self) -> Optional[List[int]]:
-        """
-        Without DIM parameter, reduce over all axes.
-        """
-        return None
+        return self.reduction_axis
 
     @abstractmethod
     def _get_reduction_function(self) -> str:

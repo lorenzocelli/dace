@@ -376,6 +376,42 @@ def test_fortran_frontend_min_max_matrix_mask_rand(seed):
     sdfg(d=d, mask=mask, res=res)
     assert res[0] == expected
 
+@pytest.mark.parametrize("seed", [
+    12912383124985,
+    12341231928371,
+    16581756998726,
+    98164527188294
+])
+@pytest.mark.parametrize("dim", [1, 2])
+def test_fortran_frontend_min_max_matrix_mask_rand_dim(seed, dim):
+    shape = (30, 50)
+
+    rng = np.random.default_rng(seed)
+    d = rng.random(shape).astype(np.double, order="F")
+    mask = (rng.random(shape) > 0.5).astype(np.int32, order="F")
+
+    result_shape = shape[1] if dim == 1 else shape[0]
+    res = np.zeros([result_shape], dtype=np.double, order="F")
+    expected = np.min(d, where=(mask > 0), initial=np.inf, axis=dim - 1)
+
+    shape_str = ",".join([str(d) for d in d.shape])
+    test_string = f"""
+        SUBROUTINE minval_test_function(d, mask, res)
+        double precision, dimension({shape_str}) :: d
+        integer, dimension({shape_str}) :: mask
+        double precision, dimension({result_shape}) :: res
+
+        res = minval(d, {dim}, mask)
+
+        END SUBROUTINE minval_test_function
+    """
+
+    sdfg = fortran_parser.create_sdfg_from_string(test_string, "minval_test", True)
+    sdfg.simplify()
+
+    sdfg(d=d, mask=mask, res=res)
+    assert np.abs(res - expected).max() < 1e-14
+
 if __name__ == "__main__":
 
     test_fortran_frontend_minval_double()
