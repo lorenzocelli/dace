@@ -348,7 +348,8 @@ def test_fortran_frontend_min_max_matrix_mask(array, mask, expected, method):
     16581756998726,
     98164527188294
 ])
-def test_fortran_frontend_min_max_matrix_mask_rand(seed):
+@pytest.mark.parametrize("method", ["minval", "maxval"])
+def test_fortran_frontend_min_max_matrix_mask_rand(seed, method):
     shape = (30, 30)
 
     rng = np.random.default_rng(seed)
@@ -356,7 +357,8 @@ def test_fortran_frontend_min_max_matrix_mask_rand(seed):
     mask = (rng.random(shape) > 0.5).astype(np.int32)
 
     res = np.array([0], dtype=np.double, order="F")
-    expected = np.min(d[mask > 0])  # minval with mask
+    np_method = np.min if method == "minval" else np.max 
+    expected = np_method(d[mask > 0])  # minval with mask
 
     shape = ",".join([str(d) for d in d.shape])
     test_string = f"""
@@ -365,7 +367,7 @@ def test_fortran_frontend_min_max_matrix_mask_rand(seed):
         integer, dimension({shape}) :: mask
         double precision, dimension(1) :: res
 
-        res(1) = minval(d, mask)
+        res(1) = {method}(d, mask)
 
         END SUBROUTINE minval_test_function
     """
@@ -383,7 +385,8 @@ def test_fortran_frontend_min_max_matrix_mask_rand(seed):
     98164527188294
 ])
 @pytest.mark.parametrize("dim", [1, 2])
-def test_fortran_frontend_min_max_matrix_mask_rand_dim(seed, dim):
+@pytest.mark.parametrize("method", ["minval", "maxval"])
+def test_fortran_frontend_min_max_matrix_mask_rand_dim(seed, dim, method):
     shape = (30, 50)
 
     rng = np.random.default_rng(seed)
@@ -392,7 +395,8 @@ def test_fortran_frontend_min_max_matrix_mask_rand_dim(seed, dim):
 
     result_shape = shape[1] if dim == 1 else shape[0]
     res = np.zeros([result_shape], dtype=np.double, order="F")
-    expected = np.min(d, where=(mask > 0), initial=np.inf, axis=dim - 1)
+    np_method = np.min if method == "minval" else np.max 
+    expected = np_method(d, where=(mask > 0), initial=np.inf if method == "minval" else -np.inf, axis=dim - 1)
 
     shape_str = ",".join([str(d) for d in d.shape])
     test_string = f"""
@@ -401,7 +405,7 @@ def test_fortran_frontend_min_max_matrix_mask_rand_dim(seed, dim):
         integer, dimension({shape_str}) :: mask
         double precision, dimension({result_shape}) :: res
 
-        res = minval(d, {dim}, mask)
+        res = {method}(d, {dim}, mask)
 
         END SUBROUTINE minval_test_function
     """
